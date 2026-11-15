@@ -99,7 +99,7 @@ const spec = swaggerJsdoc({
       },
     },
   },
-  apis: [path.join(__dirname, "routes", "*.js")],
+  apis: [path.join(__dirname, "routes", "*.js").replace(/\\/g, "/")],
 });
 
 export default spec;

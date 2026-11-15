@@ -9,7 +9,6 @@ const app = express();
 
 app.use(express.json());
 
-// Документация: http://localhost:3000/api-docs
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get("/api-docs.json", (req, res) => res.json(swaggerSpec));
 
