@@ -3,7 +3,7 @@
 //   npm run db:clear -- --all            удаляет ВСЕ данные из всех таблиц (с подтверждением)
 //   npm run db:clear -- --all --yes      то же без вопроса
 import readline from 'node:readline/promises';
-import db from '../src/db.js';
+import db from '../db.js';
 import { VENUE_PREFIX, CUSTOMER_EMAIL_DOMAIN } from './seedConfig.js';
 
 const args = process.argv.slice(2);

@@ -1,5 +1,6 @@
 import db from '../db.js';
 import { getPagination, getOptionalId } from '../utils/query.js';
+import { TICKET_STATUS } from '../utils/statuses.js';
 
 const COLUMNS = `
   "id_Места"    AS seat_id,
@@ -79,7 +80,9 @@ export const getById = async (req, res) => {
 };
 
 export const create = async (req, res) => {
-  const { venue_id, row_number, seat_number, seat_type } = req.body;
+  const { venue_id, row_number, seat_number } = req.body;
+  // Тип места связывает место с типом билета, поэтому сохраняем без лишних пробелов
+  const seat_type = req.body.seat_type.trim();
 
   const { error, result } = await withVenueLock(venue_id, async (client, capacity) => {
     if ((await countSeats(client, venue_id)) + 1 > capacity) {
@@ -107,7 +110,8 @@ export const create = async (req, res) => {
 
 // Массовое создание: rows_count рядов по seats_per_row мест, начиная с start_row
 export const createBulk = async (req, res) => {
-  const { venue_id, rows_count, seats_per_row, seat_type, start_row = 1 } = req.body;
+  const { venue_id, rows_count, seats_per_row, start_row = 1 } = req.body;
+  const seat_type = req.body.seat_type.trim();
   const lastRow = start_row + rows_count - 1;
   const total = rows_count * seats_per_row;
 
@@ -149,7 +153,8 @@ export const createBulk = async (req, res) => {
 };
 
 export const update = async (req, res) => {
-  const { row_number, seat_number, seat_type } = req.body;
+  const { row_number, seat_number } = req.body;
+  const seat_type = req.body.seat_type.trim();
 
   const current = await db.query(
     'SELECT "id_Площадки" AS venue_id FROM "Места" WHERE "id_Места" = $1',
@@ -163,6 +168,20 @@ export const update = async (req, res) => {
     [current.rows[0].venue_id, row_number, seat_number, req.params.id]
   );
   if (dup.rowCount) return res.status(409).json({ error: 'Такое место уже есть на этой площадке' });
+
+  // Цена билета определяется типом места: нельзя менять его, если на место уже есть
+  // неотменённые билеты другого типа места
+  const conflict = await db.query(
+    `SELECT 1
+       FROM "Билет" b
+       JOIN "Тип_Билета" t ON t."id_Типа" = b."id_Типа"
+      WHERE b."id_Места" = $1 AND b."Статус" <> $2 AND t."Тип_Места" <> $3
+      LIMIT 1`,
+    [req.params.id, TICKET_STATUS.CANCELLED, seat_type]
+  );
+  if (conflict.rowCount) {
+    return res.status(409).json({ error: 'Нельзя изменить тип места: на него есть неотменённые билеты другого типа' });
+  }
 
   const { rows } = await db.query(
     `UPDATE "Места"

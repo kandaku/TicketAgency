@@ -54,10 +54,9 @@ export const getAll = async (req, res) => {
             o."Статус"      AS status,
             o."id_Клиента"  AS customer_id,
             COUNT(b."id_Билета") FILTER (WHERE b."Статус" <> $3)::int            AS tickets_count,
-            COALESCE(SUM(t."Цена") FILTER (WHERE b."Статус" <> $3), 0)::float8   AS total
+            COALESCE(SUM(b."Цена") FILTER (WHERE b."Статус" <> $3), 0)::float8   AS total
        FROM "Заказ" o
-       LEFT JOIN "Билет"      b ON b."id_Заказа" = o."id_Заказа"
-       LEFT JOIN "Тип_Билета" t ON t."id_Типа"   = b."id_Типа"
+       LEFT JOIN "Билет" b ON b."id_Заказа" = o."id_Заказа"
       WHERE ($1::int  IS NULL OR o."id_Клиента" = $1)
         AND ($2::text IS NULL OR o."Статус"     = $2)
       GROUP BY o."id_Заказа", o."Дата_Заказа", o."Статус", o."id_Клиента"
@@ -75,9 +74,11 @@ export const getById = async (req, res) => {
 };
 
 /**
- * Создание заказа: customer_id + items[{ ticket_type_id, seat_id }].
- * Мероприятие определяется по типу билета. Всё выполняется в одной транзакции:
- * либо создаётся заказ со всеми билетами (статус reserved), либо ничего.
+ * Создание заказа: customer_id + items[{ event_id, seat_id }].
+ * Тип билета и цена определяются на сервере: по типу места (seat_type) и мероприятию
+ * находится тип билета, у которого совпадает мероприятие и "Тип_Места".
+ * Всё выполняется в одной транзакции: либо создаётся заказ со всеми билетами
+ * (статус reserved), либо ничего.
  */
 export const create = async (req, res) => {
   const { customer_id, items } = req.body;
@@ -86,59 +87,69 @@ export const create = async (req, res) => {
     const customer = await client.query('SELECT 1 FROM "Клиент" WHERE "id_Клиента" = $1', [customer_id]);
     if (!customer.rowCount) return fail(400, 'Клиент не найден');
 
-    // 1. Типы билетов -> мероприятие и площадка
-    const typeIds = [...new Set(items.map((i) => i.ticket_type_id))];
-    const typesRes = await client.query(
-      `SELECT t."id_Типа"        AS ticket_type_id,
-              t."id_Мероприятия" AS event_id,
-              e."id_Площадки"    AS venue_id,
-              (e."Дата" < NOW()) AS is_past
-         FROM "Тип_Билета" t
-         JOIN "Мероприятие" e ON e."id_Мероприятия" = t."id_Мероприятия"
-        WHERE t."id_Типа" = ANY($1::int[])`,
-      [typeIds]
-    );
-    const types = new Map(typesRes.rows.map((r) => [r.ticket_type_id, r]));
-
-    const missingType = typeIds.find((id) => !types.has(id));
-    if (missingType) return fail(400, `Тип билета ${missingType} не найден`);
-
-    const past = [...types.values()].find((t) => t.is_past);
-    if (past) return fail(409, `Мероприятие ${past.event_id} уже прошло`);
-
-    // 2. Блокируем мероприятия (в порядке возрастания id, чтобы не было взаимных блокировок):
+    // 1. Мероприятия. Блокируем их (в порядке возрастания id, чтобы не было взаимных блокировок):
     //    параллельные заказы на одно мероприятие выполняются по очереди, двойная продажа исключена.
-    const eventIds = [...new Set([...types.values()].map((t) => t.event_id))].sort((a, b) => a - b);
-    await client.query(
-      `SELECT "id_Мероприятия" FROM "Мероприятие"
+    const eventIds = [...new Set(items.map((i) => i.event_id))].sort((a, b) => a - b);
+    const eventsRes = await client.query(
+      `SELECT "id_Мероприятия" AS event_id,
+              "id_Площадки"    AS venue_id,
+              ("Дата" < NOW()) AS is_past
+         FROM "Мероприятие"
         WHERE "id_Мероприятия" = ANY($1::int[])
-        ORDER BY "id_Мероприятия" FOR UPDATE`,
+        ORDER BY "id_Мероприятия"
+          FOR UPDATE`,
       [eventIds]
     );
+    const events = new Map(eventsRes.rows.map((r) => [r.event_id, r]));
 
-    // 3. Места: существуют и относятся к площадке мероприятия
+    const missingEvent = eventIds.find((id) => !events.has(id));
+    if (missingEvent) return fail(400, `Мероприятие ${missingEvent} не найдено`);
+
+    const past = [...events.values()].find((e) => e.is_past);
+    if (past) return fail(409, `Мероприятие ${past.event_id} уже прошло`);
+
+    // 2. Места: существуют и относятся к площадке своего мероприятия
     const seatIds = [...new Set(items.map((i) => i.seat_id))];
     const seatsRes = await client.query(
-      'SELECT "id_Места" AS seat_id, "id_Площадки" AS venue_id FROM "Места" WHERE "id_Места" = ANY($1::int[])',
+      `SELECT "id_Места"    AS seat_id,
+              "id_Площадки" AS venue_id,
+              "Тип_Места"   AS seat_type
+         FROM "Места" WHERE "id_Места" = ANY($1::int[])`,
       [seatIds]
     );
     const seats = new Map(seatsRes.rows.map((r) => [r.seat_id, r]));
 
+    // 3. Типы билетов этих мероприятий: ключ "мероприятие:тип места"
+    const typesRes = await client.query(
+      `SELECT "id_Типа" AS ticket_type_id, "id_Мероприятия" AS event_id, "Тип_Места" AS seat_type
+         FROM "Тип_Билета" WHERE "id_Мероприятия" = ANY($1::int[])`,
+      [eventIds]
+    );
+    const types = new Map(typesRes.rows.map((r) => [`${r.event_id}:${r.seat_type}`, r.ticket_type_id]));
+
+    // 4. Проверка каждой позиции, тип билета подбирается по месту и мероприятию
+    const keys = new Set();
+    const resolved = [];
     for (const item of items) {
       const seat = seats.get(item.seat_id);
       if (!seat) return fail(400, `Место ${item.seat_id} не найдено`);
-      const type = types.get(item.ticket_type_id);
-      if (seat.venue_id !== type.venue_id) {
-        return fail(400, `Место ${item.seat_id} не относится к площадке мероприятия ${type.event_id}`);
-      }
-    }
 
-    // 4. Одно и то же место не может повторяться в заказе
-    const keys = new Set();
-    for (const item of items) {
-      const key = `${types.get(item.ticket_type_id).event_id}:${item.seat_id}`;
+      if (seat.venue_id !== events.get(item.event_id).venue_id) {
+        return fail(400, `Место ${item.seat_id} не относится к площадке мероприятия ${item.event_id}`);
+      }
+
+      const key = `${item.event_id}:${item.seat_id}`;
       if (keys.has(key)) return fail(400, `Место ${item.seat_id} указано в заказе несколько раз`);
       keys.add(key);
+
+      const ticketTypeId = types.get(`${item.event_id}:${seat.seat_type}`);
+      if (!ticketTypeId) {
+        return fail(
+          409,
+          `На место ${item.seat_id} (тип "${seat.seat_type}") билеты на мероприятие ${item.event_id} не продаются`
+        );
+      }
+      resolved.push({ seatId: item.seat_id, eventId: item.event_id, ticketTypeId });
     }
 
     // 5. Места не заняты другими (неотменёнными) билетами на это же мероприятие
@@ -162,15 +173,16 @@ export const create = async (req, res) => {
     );
     const newOrderId = orderRes.rows[0].order_id;
 
-    // 7. Все билеты одним запросом
+    // 7. Все билеты одним запросом; цена копируется из типа билета и дальше не меняется
     await client.query(
-      `INSERT INTO "Билет" ("id_Места", "Статус", "id_Мероприятия", "id_Типа", "id_Заказа")
-       SELECT s, $4::varchar, e, t, $5::int
-         FROM unnest($1::int[], $2::int[], $3::int[]) AS x(s, e, t)`,
+      `INSERT INTO "Билет" ("id_Места", "Статус", "id_Мероприятия", "id_Типа", "Цена", "id_Заказа")
+       SELECT x.s, $4::varchar, x.e, x.t, t."Цена", $5::int
+         FROM unnest($1::int[], $2::int[], $3::int[]) AS x(s, e, t)
+         JOIN "Тип_Билета" t ON t."id_Типа" = x.t`,
       [
-        items.map((i) => i.seat_id),
-        items.map((i) => types.get(i.ticket_type_id).event_id),
-        items.map((i) => i.ticket_type_id),
+        resolved.map((r) => r.seatId),
+        resolved.map((r) => r.eventId),
+        resolved.map((r) => r.ticketTypeId),
         TICKET_STATUS.RESERVED,
         newOrderId,
       ]

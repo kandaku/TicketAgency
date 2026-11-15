@@ -4,6 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
+    "db:init": "node scripts/init-db.js",
     "db:seed": "node scripts/seed.js",
     "db:clear": "node scripts/clear.js",
     "test": "echo \"Error: no test specified\" && exit 1",

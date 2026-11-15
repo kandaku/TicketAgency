@@ -8,6 +8,7 @@ const createRules = {
   name: { type: 'string', required: true, max: 100 },
   price: { type: 'number', required: true, min: 0 },
   event_id: { type: 'integer', required: true, min: 1 },
+  seat_type: { type: 'string', required: true, max: 50 },
 };
 
 const updateRules = {
@@ -36,11 +37,18 @@ function checkPrice(req, res, next) {
  *   schemas:
  *     TicketTypeInput:
  *       type: object
- *       required: [name, price, event_id]
+ *       required: [name, price, event_id, seat_type]
  *       properties:
  *         name: { type: string, maxLength: 100, example: VIP }
  *         price: { type: number, minimum: 0, example: 5000 }
  *         event_id: { type: integer, minimum: 1, example: 1 }
+ *         seat_type:
+ *           type: string
+ *           maxLength: 50
+ *           description: >
+ *             Для каких мест действует этот тип билета (значение seat_type у мест, например VIP или Партер).
+ *             У одного мероприятия не может быть двух типов билета на один тип места.
+ *           example: VIP
  *     TicketTypeUpdate:
  *       type: object
  *       required: [name, price]
@@ -83,6 +91,9 @@ function checkPrice(req, res, next) {
  *   post:
  *     tags: [Типы билетов]
  *     summary: Создать тип билета для мероприятия
+ *     description: >
+ *       Тип билета действует на все места мероприятия с указанным seat_type и задаёт их цену.
+ *       Тип места у созданного типа билета изменить нельзя.
  *     requestBody:
  *       required: true
  *       content:
@@ -96,6 +107,11 @@ function checkPrice(req, res, next) {
  *             schema: { $ref: '#/components/schemas/TicketType' }
  *       400:
  *         $ref: '#/components/responses/ValidationError'
+ *       409:
+ *         description: У мероприятия уже есть тип билета для этого типа мест
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
  */
 router.get('/', controller.getAll);
 router.post('/', validateBody(createRules), checkPrice, controller.create);

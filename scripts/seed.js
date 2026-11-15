@@ -70,14 +70,17 @@ const eventDefs = [
   },
 ];
 
+// seatType — для каких мест действует тип билета (совпадает с "Тип_Места" у мест площадки).
+// У мероприятия не может быть двух типов билета на один тип места.
+// Площадка 0: ряды 1-3 VIP, остальные Партер; площадка 1: все места Стандарт.
 const ticketTypeDefs = [
-  { name: "VIP", price: 5000, event: 0 }, // 0
-  { name: "Стандарт", price: 2000, event: 0 }, // 1
-  { name: "VIP", price: 6500, event: 1 }, // 2
-  { name: "Партер", price: 3000, event: 1 }, // 3
-  { name: "Стандарт", price: 1200, event: 2 }, // 4
-  { name: "Стандарт", price: 1500, event: 3 }, // 5
-  { name: "Стандарт", price: 1000, event: 4 }, // 6
+  { name: "VIP", seatType: "VIP", price: 5000, event: 0 }, // 0
+  { name: "Партер", seatType: "Партер", price: 2000, event: 0 }, // 1
+  { name: "VIP", seatType: "VIP", price: 6500, event: 1 }, // 2
+  { name: "Партер", seatType: "Партер", price: 3000, event: 1 }, // 3
+  { name: "Стандарт", seatType: "Стандарт", price: 1200, event: 2 }, // 4
+  { name: "Стандарт", seatType: "Стандарт", price: 1500, event: 3 }, // 5
+  { name: "Партер", seatType: "Партер", price: 1000, event: 4 }, // 6
 ];
 
 // Заказы в разных статусах. type — индекс из ticketTypeDefs, venue/row/seat — место.
@@ -206,9 +209,9 @@ try {
     const typeIds = [];
     for (const t of ticketTypeDefs) {
       const { rows } = await client.query(
-        `INSERT INTO "Тип_Билета" ("Название", "Цена", "id_Мероприятия")
-         VALUES ($1, $2, $3) RETURNING "id_Типа" AS id`,
-        [t.name, t.price, eventIds[t.event]],
+        `INSERT INTO "Тип_Билета" ("Название", "Цена", "id_Мероприятия", "Тип_Места")
+         VALUES ($1, $2, $3, $4) RETURNING "id_Типа" AS id`,
+        [t.name, t.price, eventIds[t.event], t.seatType],
       );
       typeIds.push(rows[0].id);
     }
@@ -241,13 +244,14 @@ try {
         const seat = seatId.get(`${item.venue}:${item.row}:${item.seat}`);
         const eventIdx = ticketTypeDefs[item.type].event;
         await client.query(
-          `INSERT INTO "Билет" ("id_Места", "Статус", "id_Мероприятия", "id_Типа", "id_Заказа")
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO "Билет" ("id_Места", "Статус", "id_Мероприятия", "id_Типа", "Цена", "id_Заказа")
+           VALUES ($1, $2, $3, $4, $5, $6)`,
           [
             seat,
             o.ticketStatus,
             eventIds[eventIdx],
             typeIds[item.type],
+            ticketTypeDefs[item.type].price,
             orderId,
           ],
         );

@@ -16,7 +16,10 @@ const router = Router();
  *         row_number: { type: integer, example: 1 }
  *         seat_number: { type: integer, example: 15 }
  *         seat_type: { type: string, example: Партер }
- *         is_available: { type: boolean, example: true }
+ *         ticket_type_id: { type: integer, nullable: true, description: Тип билета для этого места на это мероприятие. null, если тип не заведён, example: 3 }
+ *         ticket_type_name: { type: string, nullable: true, example: Партер }
+ *         price: { type: number, nullable: true, description: Цена билета на это место. null, если место не продаётся, example: 3000 }
+ *         is_available: { type: boolean, description: Место свободно и на него есть тип билета, example: true }
  *     EventSeats:
  *       type: object
  *       properties:
@@ -37,8 +40,11 @@ const router = Router();
  *     tags: [Мероприятия]
  *     summary: Схема мест мероприятия (свободно / занято)
  *     description: >
- *       Все места площадки мероприятия. Место занято, если на него есть неотменённый билет
- *       (reserved или sold) на это мероприятие.
+ *       Все места площадки мероприятия с типом билета и ценой. Тип билета определяется по паре
+ *       (мероприятие, тип места). Место недоступно (is_available = false), если на него есть
+ *       неотменённый билет (reserved или sold) на это мероприятие или если для типа места
+ *       у мероприятия не заведён тип билета (тогда ticket_type_id и price равны null).
+ *       Для заказа достаточно передать event_id и seat_id.
  *     parameters:
  *       - $ref: '#/components/parameters/IdParam'
  *       - in: query

@@ -7,7 +7,7 @@ const router = Router();
 const MAX_ITEMS = 20;
 const isPositiveInt = (v) => Number.isInteger(v) && v > 0;
 
-// Проверка тела POST /orders: { customer_id, items: [{ ticket_type_id, seat_id }] }
+// Проверка тела POST /orders: { customer_id, items: [{ event_id, seat_id }] }
 function validateOrderBody(req, res, next) {
   const { customer_id, items } = req.body ?? {};
   const details = [];
@@ -22,8 +22,8 @@ function validateOrderBody(req, res, next) {
     details.push({ field: 'items', message: `не более ${MAX_ITEMS} билетов в одном заказе` });
   } else {
     items.forEach((item, i) => {
-      if (!isPositiveInt(item?.ticket_type_id)) {
-        details.push({ field: `items[${i}].ticket_type_id`, message: 'обязательное положительное целое число' });
+      if (!isPositiveInt(item?.event_id)) {
+        details.push({ field: `items[${i}].event_id`, message: 'обязательное положительное целое число' });
       }
       if (!isPositiveInt(item?.seat_id)) {
         details.push({ field: `items[${i}].seat_id`, message: 'обязательное положительное целое число' });
@@ -41,13 +41,13 @@ function validateOrderBody(req, res, next) {
  *   schemas:
  *     OrderItemInput:
  *       type: object
- *       required: [ticket_type_id, seat_id]
+ *       required: [event_id, seat_id]
  *       properties:
- *         ticket_type_id:
+ *         event_id: { type: integer, description: Мероприятие, на которое покупается место, example: 1 }
+ *         seat_id:
  *           type: integer
- *           description: Тип билета. По нему определяется мероприятие и цена.
- *           example: 1
- *         seat_id: { type: integer, example: 15 }
+ *           description: Место. По его типу (seat_type) и мероприятию сервер подбирает тип билета и цену.
+ *           example: 15
  *     OrderCreateInput:
  *       type: object
  *       required: [customer_id, items]
@@ -132,9 +132,12 @@ function validateOrderBody(req, res, next) {
  *     summary: Создать заказ с билетами
  *     description: >
  *       Создаёт заказ (статус new) и билеты на выбранные места (статус reserved) одной транзакцией:
- *       либо всё, либо ничего. Мероприятие определяется по типу билета.
- *       Проверяется, что клиент и типы билетов существуют, места относятся к площадке мероприятия,
- *       не повторяются и не заняты другими неотменёнными билетами, а мероприятие ещё не прошло.
+ *       либо всё, либо ничего. В позиции передаются мероприятие и место, тип билета и цена
+ *       определяются сервером: ищется тип билета мероприятия с тем же типом места, что у места.
+ *       Цена фиксируется в билете в момент заказа.
+ *       Проверяется, что клиент, мероприятия и места существуют, места относятся к площадке мероприятия,
+ *       не повторяются и не заняты другими неотменёнными билетами, мероприятие ещё не прошло,
+ *       а для типа места есть тип билета.
  *       Параллельные заказы на одно мероприятие выполняются по очереди, двойная продажа места невозможна.
  *     requestBody:
  *       required: true
@@ -148,12 +151,12 @@ function validateOrderBody(req, res, next) {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Order' }
  *       400:
- *         description: Ошибка валидации, клиент, тип билета или место не найдены, место с другой площадки
+ *         description: Ошибка валидации, клиент, мероприятие или место не найдены, место с другой площадки
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  *       409:
- *         description: Места уже заняты (в details список seat_id и event_id) или мероприятие прошло
+ *         description: Места уже заняты (в details список seat_id и event_id), мероприятие прошло или на тип места нет билетов
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }

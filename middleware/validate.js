@@ -51,6 +51,14 @@ function checkValue(value, rule) {
   }
 }
 
+// Ошибка клиента (400): errorHandler вернёт её message и details как есть
+function badRequest(message, details) {
+  const err = new Error(message);
+  err.status = 400;
+  if (details) err.details = details;
+  return err;
+}
+
 export function validateBody(rules) {
   return (req, res, next) => {
     const body = req.body || {};
@@ -66,7 +74,7 @@ export function validateBody(rules) {
       if (message) errors.push({ field, message });
     }
 
-    if (errors.length) return next(new Error("Ошибка валидации", errors));
+    if (errors.length) return next(badRequest("Ошибка валидации", errors));
     return next();
   };
 }
@@ -77,7 +85,7 @@ export function validateId(param = "id") {
     const value = Number(req.params[param]);
     if (!Number.isInteger(value) || value <= 0) {
       return next(
-        new Error(`Параметр ${param} должен быть положительным целым числом`),
+        badRequest(`Параметр ${param} должен быть положительным целым числом`),
       );
     }
     req.params[param] = value;

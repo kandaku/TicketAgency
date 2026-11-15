@@ -1,7 +1,9 @@
 import db from '../db.js';
 import { TICKET_STATUS } from '../utils/statuses.js';
 
-// GET /events/:id/seats: все места площадки мероприятия с отметкой «свободно / занято»
+// GET /events/:id/seats: все места площадки мероприятия с типом билета, ценой и отметкой «свободно / занято».
+// Тип билета определяется по паре (мероприятие, тип места). Если для типа места у мероприятия
+// тип билета не заведён, место не продаётся: price = null, is_available = false.
 export const getEventSeats = async (req, res) => {
   const onlyAvailable = req.query.only_available === 'true';
 
@@ -14,17 +16,24 @@ export const getEventSeats = async (req, res) => {
   const event = eventRes.rows[0];
 
   const { rows } = await db.query(
-    `SELECT s."id_Места" AS seat_id,
-            s."Ряд"      AS row_number,
-            s."Номер"    AS seat_number,
+    `SELECT s."id_Места"  AS seat_id,
+            s."Ряд"       AS row_number,
+            s."Номер"     AS seat_number,
             s."Тип_Места" AS seat_type,
-            NOT EXISTS (
-              SELECT 1 FROM "Билет" b
-               WHERE b."id_Места" = s."id_Места"
-                 AND b."id_Мероприятия" = $1
-                 AND b."Статус" <> $3
-            ) AS is_available
+            t."id_Типа"      AS ticket_type_id,
+            t."Название"     AS ticket_type_name,
+            t."Цена"::float8 AS price,
+            (t."id_Типа" IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM "Билет" b
+                WHERE b."id_Места" = s."id_Места"
+                  AND b."id_Мероприятия" = $1
+                  AND b."Статус" <> $3
+             )) AS is_available
        FROM "Места" s
+       LEFT JOIN "Тип_Билета" t
+              ON t."id_Мероприятия" = $1
+             AND t."Тип_Места"      = s."Тип_Места"
       WHERE s."id_Площадки" = $2
       ORDER BY s."Ряд", s."Номер"`,
     [event.event_id, event.venue_id, TICKET_STATUS.CANCELLED]

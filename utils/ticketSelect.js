@@ -13,7 +13,7 @@ export const TICKET_SELECT = `
          s."Тип_Места"     AS seat_type,
          b."id_Типа"       AS ticket_type_id,
          t."Название"      AS ticket_type_name,
-         t."Цена"::float8  AS price
+         b."Цена"::float8  AS price
     FROM "Билет" b
     JOIN "Мероприятие" e ON e."id_Мероприятия" = b."id_Мероприятия"
     JOIN "Места"       s ON s."id_Места"       = b."id_Места"
