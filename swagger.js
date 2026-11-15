@@ -15,9 +15,7 @@ const spec = swaggerJsdoc({
       version: "1.0.0",
       description: "REST API сервиса продажи билетов на мероприятия",
     },
-    servers: [
-      { url: `http://localhost:${PORT}`, description: "Локальный сервер" },
-    ],
+    servers: [{ url: `/`, description: "Текущий сервер" }],
     tags: [{ name: "Служебные" }, { name: "Площадки" }],
     components: {
       parameters: {

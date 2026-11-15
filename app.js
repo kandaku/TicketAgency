@@ -14,7 +14,6 @@ app.get("/api-docs.json", (req, res) => res.json(swaggerSpec));
 
 app.use("/", routes);
 
-app.use(notFoundHandler);
 app.use(errorHandler);
 
 export default app;
